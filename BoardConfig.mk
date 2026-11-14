@@ -17,6 +17,7 @@
 
 DEVICE_PATH := device/samsung/m12
 TARGET_COPY_OUT_VENDOR := vendor
+TARGET_COPY_OUT_PRODUCT := product
 
 # Allow missing dependencies for minimal manifest recovery builds
 ALLOW_MISSING_DEPENDENCIES := true
