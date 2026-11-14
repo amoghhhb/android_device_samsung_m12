@@ -1,0 +1,61 @@
+
+name: Inspect M12 Prebuilt Files
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Inspect Kernel and DTB
+        run: |
+          echo "===== FILE SIZES ====="
+          ls -lh prebuilt/kernel prebuilt/dtb.img prebuilt/dtbo.img
+
+          echo "===== SHA256 CHECKSUMS ====="
+          sha256sum prebuilt/kernel prebuilt/dtb.img prebuilt/dtbo.img
+
+          echo "===== FILE TYPES ====="
+          file prebuilt/kernel prebuilt/dtb.img prebuilt/dtbo.img
+
+          echo "===== DTB IMAGE ANALYSIS ====="
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+
+          p = Path("prebuilt/dtb.img")
+          data = p.read_bytes()
+
+          magic = bytes.fromhex("d00dfeed")
+          offsets = []
+          pos = 0
+
+          while True:
+              pos = data.find(magic, pos)
+              if pos < 0:
+                  break
+              offsets.append(pos)
+              pos += 4
+
+          print("DTB image size:", len(data))
+          print("FDT magic count:", len(offsets))
+          print("FDT offsets:", offsets[:50])
+
+          for off in offsets[:20]:
+              if off + 8 <= len(data):
+                  total_size = struct.unpack(">I", data[off+4:off+8])[0]
+                  print(f"Offset {off}: FDT total size = {total_size}")
+
+          print("First 32 bytes:", data[:32].hex(" "))
+          PY
+
+          echo "===== KERNEL HEADER ====="
+          xxd -l 64 prebuilt/kernel
+
+      - name: Inspect Completed
+        run: echo "Prebuilt inspection completed."
