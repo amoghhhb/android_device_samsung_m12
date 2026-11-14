@@ -73,48 +73,62 @@ jobs:
           mkdir -p device/samsung/m12
           cp -r "$GITHUB_WORKSPACE"/. device/samsung/m12/
 
-          echo "=== Checking prebuilt files ==="
+          echo "===== CHECK PREBUILT FILES ====="
 
-          if [ ! -s device/samsung/m12/prebuilt/kernel ]; then
-            echo "::error::Prebuilt kernel is missing or empty"
-            exit 1
-          fi
-
-          if [ ! -s device/samsung/m12/prebuilt/dtb.img ]; then
-            echo "::error::Prebuilt dtb.img is missing or empty"
-            exit 1
-          fi
-
-          if [ ! -s device/samsung/m12/prebuilt/dtbo.img ]; then
-            echo "::error::Prebuilt dtbo.img is missing or empty"
-            exit 1
-          fi
+          for f in kernel dtb.img dtbo.img; do
+            if [ ! -s "device/samsung/m12/prebuilt/$f" ]; then
+              echo "::error::Missing prebuilt/$f"
+              exit 1
+            fi
+          done
 
           ls -lh device/samsung/m12/prebuilt/
 
-      - name: Configure Build Environment and Prepare DTB
-        run: |
-          cd ~/twrp
-          source build/envsetup.sh
+          echo "===== EXTRACT DTB ====="
 
-          lunch omni_m12-userdebug || lunch twrp_m12-userdebug
+          mkdir -p device/samsung/m12/prebuilt/dtb
 
-          OUT_DIR="out/target/product/m12"
-          mkdir -p "$OUT_DIR"
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
 
-          # Copy the existing prebuilt DTB image to the expected output path.
-          cp device/samsung/m12/prebuilt/dtb.img "$OUT_DIR/dtb.img"
+          source = Path("device/samsung/m12/prebuilt/dtb.img")
+          destination = Path("device/samsung/m12/prebuilt/dtb/m12.dtb")
 
-          echo "=== Verify DTB output ==="
-          ls -lh "$OUT_DIR/dtb.img"
-          test -s "$OUT_DIR/dtb.img"
+          data = source.read_bytes()
+          magic = bytes.fromhex("d00dfeed")
+
+          if data[:4] != magic:
+              raise SystemExit("ERROR: Invalid DTB magic")
+
+          total_size = struct.unpack(">I", data[4:8])[0]
+
+          if total_size < 40 or total_size > len(data):
+              raise SystemExit("ERROR: Invalid DTB total size")
+
+          destination.write_bytes(data[:total_size])
+
+          print("Original DTB image:", len(data), "bytes")
+          print("Extracted DTB:", total_size, "bytes")
+          print("Output:", destination)
+          PY
+
+          echo "===== VERIFY EXTRACTED DTB ====="
+          file device/samsung/m12/prebuilt/dtb/m12.dtb
+          ls -lh device/samsung/m12/prebuilt/dtb/
 
       - name: Build TWRP Recovery
         run: |
           cd ~/twrp
           source build/envsetup.sh
+
           lunch omni_m12-userdebug || lunch twrp_m12-userdebug
 
+          echo "===== BUILD CONFIGURATION ====="
+          echo "Device: $(get_build_var TARGET_DEVICE)"
+          echo "Product output: $(get_build_var PRODUCT_OUT)"
+
+          echo "===== BUILD RECOVERY ====="
           mka recoveryimage -j2
 
       - name: Validate Recovery Image
@@ -138,10 +152,15 @@ jobs:
             exit 1
           fi
 
-          mkdir -p "$GITHUB_WORKSPACE/output"
-          cp "$TARGET_IMG" "$GITHUB_WORKSPACE/output/twrp-SM-M127G-recovery.img"
+          echo "===== IMAGE HEADER ====="
+          xxd -l 64 "$TARGET_IMG"
 
-          echo "=== Generated recovery image ==="
+          mkdir -p "$GITHUB_WORKSPACE/output"
+
+          cp "$TARGET_IMG" \
+            "$GITHUB_WORKSPACE/output/twrp-SM-M127G-recovery.img"
+
+          echo "===== FINAL ARTIFACT ====="
           ls -lh "$GITHUB_WORKSPACE/output/"
 
       - name: Upload Build Artifact
