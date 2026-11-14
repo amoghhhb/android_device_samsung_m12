@@ -3,8 +3,8 @@
 #
 
 PRODUCT_MAKEFILES := \
-    $(LOCAL_PATH)/twrp_m12.mk \
-    $(LOCAL_PATH)/omni_m12.mk
+    $(LOCAL_DIR)/twrp_m12.mk \
+    $(LOCAL_DIR)/omni_m12.mk
 
 COMMON_LUNCH_CHOICES := \
     twrp_m12-userdebug \
