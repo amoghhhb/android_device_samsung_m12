@@ -51,7 +51,9 @@ TARGET_PREBUILT_KERNEL := $(DEVICE_PATH)/prebuilt/kernel
 # Prebuilt DTBO
 BOARD_PREBUILT_DTBOIMAGE := $(DEVICE_PATH)/prebuilt/dtbo.img
 
-# Prebuilt DTB image is copied by device/samsung/m12/Android.mk
+# Include DTB in boot image.
+# The GitHub Actions workflow copies the existing dtb.img
+# into the product output directory before building.
 BOARD_INCLUDE_DTB_IN_BOOTIMG := true
 
 BOARD_KERNEL_CMDLINE := bootconfig androidboot.selinux=permissive
