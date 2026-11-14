@@ -1,3 +1,4 @@
+
 #
 # Copyright (C) 2026 The TeamWin Recovery Project
 #
@@ -15,6 +16,7 @@
 #
 
 DEVICE_PATH := device/samsung/m12
+TARGET_COPY_OUT_VENDOR := vendor
 
 # Allow missing dependencies for minimal manifest recovery builds
 ALLOW_MISSING_DEPENDENCIES := true
@@ -39,7 +41,7 @@ TARGET_BOARD_PLATFORM := exynos850
 TARGET_BOOTLOADER_BOARD_NAME := exynos850
 TARGET_SOC := exynos850
 
-# Kernel Specs (Crucial for full 50-53MB recovery build)
+# Kernel Specs
 TARGET_NO_KERNEL := false
 TARGET_PREBUILT_KERNEL := $(DEVICE_PATH)/prebuilt/kernel
 BOARD_PREBUILT_DTBOIMAGE := $(DEVICE_PATH)/prebuilt/dtbo.img
