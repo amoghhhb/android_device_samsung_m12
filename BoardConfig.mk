@@ -16,6 +16,7 @@
 #
 
 DEVICE_PATH := device/samsung/m12
+
 TARGET_COPY_OUT_VENDOR := vendor
 TARGET_COPY_OUT_PRODUCT := product
 TARGET_COPY_OUT_ODM := odm
@@ -46,8 +47,11 @@ TARGET_SOC := exynos850
 # Kernel Specs
 TARGET_NO_KERNEL := false
 TARGET_PREBUILT_KERNEL := $(DEVICE_PATH)/prebuilt/kernel
+
+# Prebuilt DTBO
 BOARD_PREBUILT_DTBOIMAGE := $(DEVICE_PATH)/prebuilt/dtbo.img
-BOARD_PREBUILT_DTBIMAGE := $(DEVICE_PATH)/prebuilt/dtb.img
+
+# Prebuilt DTB image is copied by device/samsung/m12/Android.mk
 BOARD_INCLUDE_DTB_IN_BOOTIMG := true
 
 BOARD_KERNEL_CMDLINE := bootconfig androidboot.selinux=permissive
