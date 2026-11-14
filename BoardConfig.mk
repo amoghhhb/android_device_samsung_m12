@@ -44,16 +44,15 @@ TARGET_BOARD_PLATFORM := exynos850
 TARGET_BOOTLOADER_BOARD_NAME := exynos850
 TARGET_SOC := exynos850
 
-# Kernel Specs
+# Kernel
 TARGET_NO_KERNEL := false
 TARGET_PREBUILT_KERNEL := $(DEVICE_PATH)/prebuilt/kernel
 
 # Prebuilt DTBO
 BOARD_PREBUILT_DTBOIMAGE := $(DEVICE_PATH)/prebuilt/dtbo.img
 
-# Include DTB in boot image.
-# The GitHub Actions workflow copies the existing dtb.img
-# into the product output directory before building.
+# Prebuilt DTB directory
+BOARD_PREBUILT_DTBIMAGE_DIR := $(DEVICE_PATH)/prebuilt/dtb
 BOARD_INCLUDE_DTB_IN_BOOTIMG := true
 
 BOARD_KERNEL_CMDLINE := bootconfig androidboot.selinux=permissive
@@ -62,7 +61,7 @@ BOARD_KERNEL_PAGESIZE := 2048
 BOARD_KERNEL_IMAGE_NAME := Image
 BOARD_INCLUDE_RECOVERY_DTBO := true
 
-# Partitions - Sizes (Extracted from SM-M127G partition table)
+# Partitions - Sizes (SM-M127G)
 BOARD_FLASH_BLOCK_SIZE := 2048
 BOARD_BOOTIMAGE_PARTITION_SIZE := 46137344
 BOARD_RECOVERYIMAGE_PARTITION_SIZE := 55574528
