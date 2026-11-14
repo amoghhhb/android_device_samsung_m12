@@ -3,6 +3,11 @@ name: Inspect Existing TWRP Recovery
 
 on:
   workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Successful TWRP build run ID"
+        required: true
+        type: string
 
 jobs:
   inspect:
@@ -15,13 +20,15 @@ jobs:
           name: TWRP_SM-M127G_Build
           path: recovery
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.run_id }}
 
       - name: Inspect Recovery Image
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import struct
+          import hashlib
 
           files = list(Path("recovery").glob("*.img"))
 
@@ -35,11 +42,7 @@ jobs:
           print("===== RECOVERY IMAGE =====")
           print("File:", p.name)
           print("Size:", len(data))
-          print("SHA256:")
-
-          import hashlib
-          print(hashlib.sha256(data).hexdigest())
-
+          print("SHA256:", hashlib.sha256(data).hexdigest())
           print("ANDROID! header:", data[:8] == b"ANDROID!")
 
           offsets = []
