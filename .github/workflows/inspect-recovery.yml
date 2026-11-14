@@ -1,0 +1,64 @@
+
+name: Inspect Existing TWRP Recovery
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Download Existing Recovery Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: TWRP_SM-M127G_Build
+          path: recovery
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Inspect Recovery Image
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+
+          files = list(Path("recovery").glob("*.img"))
+
+          if not files:
+              raise SystemExit("Recovery image not found")
+
+          p = files[0]
+          data = p.read_bytes()
+          magic = bytes.fromhex("d00dfeed")
+
+          print("===== RECOVERY IMAGE =====")
+          print("File:", p.name)
+          print("Size:", len(data))
+          print("SHA256:")
+
+          import hashlib
+          print(hashlib.sha256(data).hexdigest())
+
+          print("ANDROID! header:", data[:8] == b"ANDROID!")
+
+          offsets = []
+          pos = 0
+
+          while True:
+              pos = data.find(magic, pos)
+              if pos < 0:
+                  break
+              offsets.append(pos)
+              pos += 4
+
+          print("FDT magic count:", len(offsets))
+          print("FDT offsets:", offsets[:30])
+
+          for off in offsets[:30]:
+              if off + 8 <= len(data):
+                  size = struct.unpack(">I", data[off+4:off+8])[0]
+                  print(f"FDT at {off}: total size {size}")
+
+          print("===== INSPECTION COMPLETE =====")
+          PY
