@@ -67,55 +67,142 @@ jobs:
           cd ~/twrp
           repo sync -c -j2 --force-sync --no-clone-bundle --no-tags
 
-      - name: Setup Device Tree and Verify Prebuilt Files
+      - name: Setup Device Tree and Prepare Samsung DT Components
         run: |
           cd ~/twrp
+
           mkdir -p device/samsung/m12
           cp -r "$GITHUB_WORKSPACE"/. device/samsung/m12/
+
+          BASE="device/samsung/m12/prebuilt"
 
           echo "===== CHECK PREBUILT FILES ====="
 
           for f in kernel dtb.img dtbo.img; do
-            if [ ! -s "device/samsung/m12/prebuilt/$f" ]; then
+            if [ ! -s "$BASE/$f" ]; then
               echo "::error::Missing prebuilt/$f"
               exit 1
             fi
           done
 
-          ls -lh device/samsung/m12/prebuilt/
+          ls -lh "$BASE"
 
-          echo "===== EXTRACT DTB ====="
-
-          mkdir -p device/samsung/m12/prebuilt/dtb
+          echo "===== CREATE SAMSUNG DT TABLE AND RECOVERY DTBO ====="
 
           python3 - <<'PY'
           from pathlib import Path
           import struct
 
-          source = Path("device/samsung/m12/prebuilt/dtb.img")
-          destination = Path("device/samsung/m12/prebuilt/dtb/m12.dtb")
+          base = Path("device/samsung/m12/prebuilt")
 
+          # ------------------------------------------
+          # 1. Read the raw stock DTB
+          # ------------------------------------------
+
+          source = base / "dtb.img"
           data = source.read_bytes()
-          magic = bytes.fromhex("d00dfeed")
 
-          if data[:4] != magic:
-              raise SystemExit("ERROR: Invalid DTB magic")
+          if data[:4] != bytes.fromhex("d00dfeed"):
+              raise SystemExit("ERROR: Invalid raw DTB magic")
 
-          total_size = struct.unpack(">I", data[4:8])[0]
+          dtb_size = struct.unpack(">I", data[4:8])[0]
 
-          if total_size < 40 or total_size > len(data):
-              raise SystemExit("ERROR: Invalid DTB total size")
+          if dtb_size != 128052:
+              raise SystemExit(
+                  f"ERROR: Expected stock DTB size 128052, got {dtb_size}"
+              )
 
-          destination.write_bytes(data[:total_size])
+          if dtb_size > len(data):
+              raise SystemExit("ERROR: DTB size exceeds source file")
 
-          print("Original DTB image:", len(data), "bytes")
-          print("Extracted DTB:", total_size, "bytes")
-          print("Output:", destination)
+          dtb = data[:dtb_size]
+
+          # ------------------------------------------
+          # 2. Create Android DT table
+          # Matching stock boot/recovery structure
+          # ------------------------------------------
+
+          table_header = struct.pack(
+              ">8I",
+              0xd7b7ab1e,
+              64 + dtb_size,
+              32,
+              32,
+              1,
+              32,
+              2048,
+              0
+          )
+
+          table_entry = struct.pack(
+              ">8I",
+              dtb_size,
+              64,
+              0,
+              0,
+              0,
+              255,
+              0,
+              0
+          )
+
+          table = table_header + table_entry + dtb
+
+          if len(table) != 128116:
+              raise SystemExit("ERROR: Incorrect generated DT table size")
+
+          table_path = base / "dtb-table.img"
+          table_path.write_bytes(table)
+
+          print("DT table:", table_path)
+          print("DTB payload size:", dtb_size)
+          print("DT table size:", len(table))
+
+          # ------------------------------------------
+          # 3. Extract stock recovery DTBO table
+          # ------------------------------------------
+
+          dtbo_source = base / "dtbo.img"
+          dtbo_data = dtbo_source.read_bytes()
+
+          if dtbo_data[:4] != bytes.fromhex("d7b7ab1e"):
+              raise SystemExit("ERROR: Invalid DTBO table magic")
+
+          values = struct.unpack(">8I", dtbo_data[:32])
+
+          magic, total_size, header_size, entry_size, count, entries, page_size, version = values
+
+          if total_size != 318520:
+              raise SystemExit(
+                  f"ERROR: Expected recovery DTBO size 318520, got {total_size}"
+              )
+
+          if header_size != 32 or entry_size != 32 or count != 2:
+              raise SystemExit("ERROR: Unexpected stock DTBO table structure")
+
+          if total_size > len(dtbo_data):
+              raise SystemExit("ERROR: DTBO table exceeds source file")
+
+          recovery_dtbo = dtbo_data[:total_size]
+
+          recovery_dtbo_path = base / "recovery_dtbo.img"
+          recovery_dtbo_path.write_bytes(recovery_dtbo)
+
+          print("Recovery DTBO:", recovery_dtbo_path)
+          print("Recovery DTBO size:", len(recovery_dtbo))
+
+          # ------------------------------------------
+          # 4. Final checks
+          # ------------------------------------------
+
+          assert table[:4] == bytes.fromhex("d7b7ab1e")
+          assert recovery_dtbo[:4] == bytes.fromhex("d7b7ab1e")
+
+          print("Samsung DT components prepared successfully.")
           PY
 
-          echo "===== VERIFY EXTRACTED DTB ====="
-          file device/samsung/m12/prebuilt/dtb/m12.dtb
-          ls -lh device/samsung/m12/prebuilt/dtb/
+          echo "===== VERIFY GENERATED COMPONENTS ====="
+          ls -lh "$BASE/dtb-table.img" "$BASE/recovery_dtbo.img"
 
       - name: Build TWRP Recovery
         run: |
@@ -127,11 +214,12 @@ jobs:
           echo "===== BUILD CONFIGURATION ====="
           echo "Device: $(get_build_var TARGET_DEVICE)"
           echo "Product output: $(get_build_var PRODUCT_OUT)"
+          echo "Recovery mkbootimg args: $(get_build_var BOARD_RECOVERY_MKBOOTIMG_ARGS)"
 
           echo "===== BUILD RECOVERY ====="
           mka recoveryimage -j2
 
-      - name: Validate Recovery Image
+      - name: Validate Recovery Image Structure
         run: |
           cd ~/twrp
 
@@ -143,17 +231,91 @@ jobs:
             exit 1
           fi
 
+          echo "===== VERIFY ANDROID BOOT HEADER ====="
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+
+          image = Path("out/target/product/m12/recovery.img").read_bytes()
+
+          if image[:8] != b"ANDROID!":
+              raise SystemExit("ERROR: Invalid Android boot image magic")
+
+          kernel_size = struct.unpack_from("<I", image, 8)[0]
+          ramdisk_size = struct.unpack_from("<I", image, 16)[0]
+          page_size = struct.unpack_from("<I", image, 36)[0]
+          header_version = struct.unpack_from("<I", image, 40)[0]
+
+          print("Image size:", len(image))
+          print("Kernel size:", kernel_size)
+          print("Ramdisk size:", ramdisk_size)
+          print("Page size:", page_size)
+          print("Header version:", header_version)
+
+          if header_version != 2:
+              raise SystemExit(
+                  f"ERROR: Expected header version 2, got {header_version}"
+              )
+
+          recovery_dtbo_size = struct.unpack_from("<I", image, 1632)[0]
+          recovery_dtbo_offset = struct.unpack_from("<Q", image, 1636)[0]
+          header_size = struct.unpack_from("<I", image, 1644)[0]
+          dtb_size = struct.unpack_from("<I", image, 1648)[0]
+          dtb_address = struct.unpack_from("<I", image, 1652)[0]
+
+          print("Recovery DTBO size:", recovery_dtbo_size)
+          print("Recovery DTBO offset:", recovery_dtbo_offset)
+          print("Header size:", header_size)
+          print("DTB size:", dtb_size)
+          print("DTB address:", hex(dtb_address))
+
+          if recovery_dtbo_size != 318520:
+              raise SystemExit("ERROR: Recovery DTBO size is incorrect")
+
+          if dtb_size != 128116:
+              raise SystemExit("ERROR: DTB table size is incorrect")
+
+          if dtb_address != 0x10000000:
+              raise SystemExit("ERROR: DTB address is incorrect")
+
+          if recovery_dtbo_offset + recovery_dtbo_size > len(image):
+              raise SystemExit("ERROR: Recovery DTBO extends beyond image")
+
+          dtbo = image[
+              recovery_dtbo_offset:
+              recovery_dtbo_offset + recovery_dtbo_size
+          ]
+
+          if dtbo[:4] != bytes.fromhex("d7b7ab1e"):
+              raise SystemExit("ERROR: Recovery DTBO table missing")
+
+          dtb_table_magic = bytes.fromhex("d7b7ab1e")
+          dtb_start = recovery_dtbo_offset + recovery_dtbo_size
+          dtb_position = image.find(dtb_table_magic, dtb_start)
+
+          if dtb_position < 0:
+              raise SystemExit("ERROR: DT table not found after recovery DTBO")
+
+          dtb_header = struct.unpack_from(">8I", image, dtb_position)
+
+          if dtb_header[1] != 128116 or dtb_header[4] != 1:
+              raise SystemExit("ERROR: Embedded DT table structure is incorrect")
+
+          print("Embedded DT table offset:", dtb_position)
+          print("Embedded DT table size:", dtb_header[1])
+
+          print("SUCCESS: Required recovery image components detected.")
+          PY
+
           FILE_SIZE=$(stat -c%s "$TARGET_IMG")
 
-          echo "Recovery image size: $FILE_SIZE bytes"
-
-          if [ "$FILE_SIZE" -lt 25000000 ]; then
-            echo "::error::Recovery image is unexpectedly small"
+          if [ "$FILE_SIZE" -gt 55574528 ]; then
+            echo "::error::Recovery image exceeds the recovery partition size"
             exit 1
           fi
 
-          echo "===== IMAGE HEADER ====="
-          xxd -l 64 "$TARGET_IMG"
+          echo "Recovery image size: $FILE_SIZE bytes"
 
           mkdir -p "$GITHUB_WORKSPACE/output"
 
